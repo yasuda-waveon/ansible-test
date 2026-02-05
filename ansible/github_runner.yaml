@@ -1,0 +1,4 @@
+---
+- hosts: github_runner
+  roles:
+    - github_runner

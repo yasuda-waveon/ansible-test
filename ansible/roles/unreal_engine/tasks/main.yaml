@@ -1,0 +1,318 @@
+---
+- name: Stop Launcher
+  ansible.windows.win_shell: |
+    C:\Users\{{ login_user }}\Desktop/stop_app.ps1
+  ignore_errors: true # プロセスが存在しない場合はエラーになるので、その場合は無視する
+  tags: [github_actions]
+
+- name: Create Work Directry
+  ansible.windows.win_file:
+    path: C:\WORK
+    state: directory
+
+- name: Set Timezone to JST
+  community.windows.win_timezone:
+    timezone: "Tokyo Standard Time"
+
+- name: Set Windows Update Active Hours
+  ansible.windows.win_powershell:
+    script: |
+      $CimInstanceParams = @{
+          Namespace = 'root\cimv2\mdm\dmmap'
+          ClassName = 'MDM_UpdateWithPolicySetting01'
+          Property  = @{
+              ActiveHoursStart = 8
+              ActiveHoursEnd   = 23
+          }
+      }
+      Set-CimInstance @CimInstanceParams -Passthru
+
+- name: Install DirectX end user runtime
+  ansible.windows.win_package:
+    path: https://download.microsoft.com/download/1/7/1/1718ccc4-6315-4d8e-9543-8e28a4e18c4c/dxwebsetup.exe
+    arguments:
+      - /Q
+
+- name: Install Visual C++
+  ansible.windows.win_package:
+    path: https://aka.ms/vs/17/release/vc_redist.x64.exe
+    product_id: '{E528AD94-12D7-42C4-91A3-908BE28E9BD2}'
+    arguments:
+      - /silent
+
+- name: Set Environment Variable NVM_HOME
+  ansible.windows.win_environment:
+    state: present
+    name: NVM_HOME
+    value: C:\Users\{{ login_user }}\AppData\Roaming\nvm
+    level: machine
+
+- name: Set Environment Variable NVM_SYMLINK
+  ansible.windows.win_environment:
+    state: present
+    name: NVM_SYMLINK
+    value: C:\Program Files\nodejs
+    level: machine
+
+- name: Set Path NVM_HOME, NVM_SYMLINK
+  ansible.windows.win_path:
+    name: PATH
+    elements:
+      - C:\Users\{{ login_user }}\AppData\Roaming\nvm
+      - C:\Program Files\nodejs
+    state: present
+  register: set_path_result
+
+- name: Reboot
+  ansible.windows.win_reboot:
+  when: set_path_result.changed
+
+- name: Create a local user with specified password
+  ansible.windows.win_user:
+    name: Administrator
+    password: '{{ ansible_password }}'
+    state: present
+    groups:
+      - Administrators
+
+- name: Get AWS credentials from Secrets Manager
+  set_fact:
+    aws_creds: "{{ lookup('aws_secret', 'cloud-watch-agent') | from_json }}"
+
+- name: Create .aws directory if it doesn't exist
+  win_file:
+    path: '{{ item }}'
+    state: directory
+  with_items:
+    - C:\Users\{{ login_user }}\.aws
+    - C:\Users\Administrator\.aws
+    - C:\Windows\System32\config\systemprofile\.aws
+
+- name: Create AWS config file
+  ansible.windows.win_copy:
+    dest: '{{ item }}'
+    content: |
+      [default]
+      region = ap-northeast-1
+      output = json
+
+      [profile AmazonCloudWatchAgent]
+      region = ap-northeast-1
+      output = json
+  with_items:
+    - C:\Users\{{ login_user }}\.aws\config
+    - C:\Users\Administrator\.aws\config
+    - C:\Windows\System32\config\systemprofile\.aws\config
+
+- name: Create AWS credentials file
+  ansible.windows.win_copy:
+    dest: '{{ item }}'
+    content: |
+      [default]
+      aws_access_key_id = {{ aws_creds.aws_access_key_id }}
+      aws_secret_access_key = {{ aws_creds.aws_secret_access_key }}
+      region = ap-northeast-1
+
+      [AmazonCloudWatchAgent]
+      aws_access_key_id = {{ aws_creds.aws_access_key_id }}
+      aws_secret_access_key = {{ aws_creds.aws_secret_access_key }}
+      region = ap-northeast-1
+  with_items:
+    - C:\Users\{{ login_user }}\.aws\credentials
+    - C:\Users\Administrator\.aws\credentials
+    - C:\Windows\System32\config\systemprofile\.aws\credentials
+
+- name: Download CloudWatch Agent MSI installer
+  ansible.windows.win_get_url:
+    url: '{{ cloudwatch_agent_url }}'
+    dest: 'C:\WORK\amazon-cloudwatch-agent.msi'
+
+- name: Install CloudWatch Agent
+  ansible.windows.win_package:
+    path: 'C:\WORK\amazon-cloudwatch-agent.msi'
+    state: present
+    arguments: '/quiet'
+
+- name: Copy CloudWatch Agent config file
+  ansible.builtin.template:
+    src: ../templates/cloud_watch_agent_config.json.j2
+    dest: '{{ cloudwatch_agent_config_path }}'
+
+- name: Download AWSCLIV2 MSI installer
+  ansible.windows.win_get_url:
+    url: '{{ aws_cli_v2_url }}'
+    dest: 'C:\WORK\AWSCLIV2.msi'
+
+- name: Install AWS CLI v2
+  ansible.windows.win_package:
+    path: 'C:\WORK\AWSCLIV2.msi'
+    state: present
+    arguments: '/qn'
+
+- name: Create Collect GPU metrics Script
+  ansible.windows.win_copy:
+    dest: 'C:\Users\{{ login_user }}\Desktop\collect_gpu_metrics.ps1'
+    content: |
+      $STATS = & "C:\Windows\System32\nvidia-smi.exe" --% --query-gpu=temperature.gpu,memory.used,memory.free,utilization.gpu,utilization.memory --format=csv,nounits
+      $object = ConvertFrom-Csv -InputObject $STATS -Delimiter ','
+      $hostname = hostname
+      $env:AWS_ACCESS_KEY_ID = "{{ aws_creds.aws_access_key_id }}"
+      $env:AWS_SECRET_ACCESS_KEY = "{{ aws_creds.aws_secret_access_key }}"
+      $metrics = @(
+        @{ Name = "GPUTemperature"; Unit = "None"; Value = $object.'temperature.gpu' },
+        @{ Name = "GPUMemoryUsed"; Unit = "Megabytes"; Value = $object.'memory.used [MiB]' },
+        @{ Name = "GPUMemoryFree"; Unit = "Megabytes"; Value = $object.'memory.free [MiB]' },
+        @{ Name = "GPUUtilization"; Unit = "Percent"; Value = $object.'utilization.gpu [%]' },
+        @{ Name = "GPUMemoryUtilization"; Unit = "Percent"; Value = $object.'utilization.memory [%]' }
+      )
+      foreach ($metric in $metrics) {
+        aws cloudwatch put-metric-data --region ap-northeast-1 --metric-name $metric.Name --namespace Custom/Windows --unit $metric.Unit --value $metric.Value --dimensions host=$hostname
+      }
+      echo $object
+
+- name: Setting GPU metrics script
+  community.windows.win_scheduled_task:
+    name: Collect GPU Stats
+    actions:
+      - path: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+        arguments: -ExecutionPolicy Bypass -File C:\Users\{{ login_user }}\Desktop\collect_gpu_metrics.ps1
+    triggers:
+      - type: daily
+        start_boundary: '2025-01-01T00:00:00'
+        repetition:
+          interval: PT1M # 1分おき (ISO8601形式)
+          duration: P1D  # 繰り返しの期間（1日）
+    username: SYSTEM
+    run_level: highest
+
+- name: Apply CloudWatch Agent configuration
+  ansible.windows.win_powershell:
+    script: |
+      & "C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1" -a fetch-config -m onPremise -s -c file:"{{ cloudwatch_agent_config_path }}"
+
+- name: Ensure Chocolatey is installed
+  ansible.windows.win_powershell:
+    script: |
+      if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      }
+
+- name: Set Path Chocolatey bin directory
+  ansible.windows.win_path:
+    name: PATH
+    elements:
+      - C:\ProgramData\chocolatey\bin
+    state: present
+  register: set_path_result_chocolatey
+
+- name: Reboot
+  ansible.windows.win_reboot:
+  when: set_path_result_chocolatey.changed
+
+- name: Ensure jq is installed using Chocolatey
+  ansible.windows.win_powershell:
+    script: |
+      choco install jq -y
+
+- name: Transfer PS1 File
+  ansible.builtin.template:
+    src: ../templates/{{ item.template_name }}
+    dest: 'C:\Users\{{ login_user }}\Desktop/{{ item.dest_file_name }}'
+  with_items:
+    - template_name: setup.ps1.j2
+      dest_file_name: setup.ps1
+    - template_name: start_app.ps1.j2
+      dest_file_name: start_app.ps1
+    - template_name: stop_app.ps1.j2
+      dest_file_name: stop_app.ps1
+    - template_name: log_rotate.ps1.j2
+      dest_file_name: log_rotate.ps1
+  tags: [github_actions]
+
+- name: Stop Launcher
+  ansible.windows.win_shell: |
+    C:\Users\{{ login_user }}\Desktop/stop_app.ps1
+  ignore_errors: true # プロセスが存在しない場合はエラーになるので、その場合は無視する
+  tags: [github_actions]
+
+- name: Exec setup.ps1 for nodejs install
+  ansible.windows.win_shell: |
+    C:\Users\{{ login_user }}\Desktop/setup.ps1
+  tags: [github_actions]
+
+- name: Remove Directory structure
+  ansible.windows.win_file:
+    path: C:\Users\{{ login_user }}\Desktop\aries-launcher
+    state: absent
+  tags: [github_actions]
+
+- name: Download Launcher zip from S3
+  ansible.windows.win_shell: |
+    aws s3 cp s3://{{ source_s3_bucket }}/launcher/launcher.zip 'C:\WORK\launcher.zip' --region ap-northeast-1
+  tags: [github_actions]
+
+- name: Expand Launcher zip
+  ansible.windows.win_shell: |
+    Expand-Archive -Path 'C:\WORK\launcher.zip' -DestinationPath 'C:\Users\{{ login_user }}\Desktop\aries-launcher'
+  tags: [github_actions]
+
+- name: Modify Launcher ID
+  ansible.windows.win_powershell:
+    script: |
+      $hostname = hostname
+      (Get-Content 'C:\Users\{{ login_user }}\Desktop\aries-launcher\src\config\{{ config_file_name }}' | jq --arg hn $hostname '.manager.launcherId = $hn') | Set-Content 'C:\Users\{{ login_user }}\Desktop\aries-launcher\src\config\{{ config_file_name }}'
+  tags: [github_actions]
+
+- name: Download Unreal Engine App packeage zip from S3
+  ansible.windows.win_shell: |
+    aws s3 cp s3://{{ source_s3_bucket }}/package/Windows.zip 'C:\WORK\package.zip' --region ap-northeast-1
+  tags: [github_actions]
+
+- name: Expand Unreal Engine App packeage zip
+  ansible.windows.win_shell: |
+    Expand-Archive -Path 'C:\WORK\package.zip' -DestinationPath 'C:\Users\{{ login_user }}\Desktop\aries-launcher\exe'
+  tags: [github_actions]
+
+- name: Add NetFirewallRule
+  ansible.windows.win_shell: |
+    Remove-NetFirewallRule -DisplayName 'aries_unreal'
+    New-NetFirewallRule -DisplayName 'aries_unreal' -Direction Inbound -Program 'C:\Users\{{ login_user }}\Desktop\aries-launcher\exe\Windows\aries_unreal\Binaries\Win64\aries_unreal.exe' -Action Allow -Profile Public
+  tags: [github_actions]
+
+- name: Start Launcher
+  ansible.windows.win_shell: |
+    C:\Users\{{ login_user }}\Desktop/start_app.ps1
+  async: 60
+  poll: 0
+  tags: [github_actions]
+
+- name: Setting Startup Script
+  ansible.windows.win_powershell:
+    script: |
+      $scriptPath = "C:\Users\{{ login_user }}\Desktop/start_app.ps1"
+      $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-ExecutionPolicy Bypass -File $($scriptPath)"
+      $trigger = New-ScheduledTaskTrigger -AtStartup
+      $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+      Register-ScheduledTask -TaskName "LauncherStartupScript" -Action $action -Trigger $trigger -Principal $principal
+  tags: [github_actions]
+
+- name: Log rotate
+  community.windows.win_scheduled_task:
+    name: LogRotate
+    actions:
+      - path: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+        arguments: -ExecutionPolicy Bypass -File C:\Users\{{ login_user }}\Desktop/log_rotate.ps1
+    triggers:
+      - type: daily
+        start_boundary: '2017-10-09T00:00:00' # 時間が指定したい時間と同じなら、過去の日付けでいつでもよい 0:00にログローテーション
+    username: SYSTEM
+    run_level: highest
+  tags: [github_actions]
+
+- name: Delete Work Directory
+  ansible.windows.win_file:
+    path: C:\WORK
+    state: absent
+  tags: [github_actions]

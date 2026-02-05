@@ -1,0 +1,20 @@
+# Variable
+$logDir = "C:\Users\{{ login_user }}\Desktop\AppLogs"
+$maxLogs = {{ launcher_log_retention_days }}
+$timestamp = Get-Date -Format "yyyyMMddHHmm"
+$logFile = "$logDir\app_$timestamp.log"
+
+# Create log directory if it doesn't exist
+If (!(Test-Path -Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir | Out-Null
+}
+
+# Delete old log files if they exceed the maximum count
+$logs = Get-ChildItem -Path $logDir -Filter "app_*.log" | Sort-Object LastWriteTime -Descending
+if ($logs.Count -ge $maxLogs) {
+    $logs | Select-Object -Skip $maxLogs | Remove-Item -Force
+}
+
+# Start Node.js application and redirect output to log file
+Set-Location -Path 'C:\Users\{{ login_user }}\Desktop\aries-launcher'
+Start-Process "cmd" -ArgumentList "/c {{ run_command }} *> $logFile" -WindowStyle Hidden

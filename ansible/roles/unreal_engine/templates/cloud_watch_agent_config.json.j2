@@ -1,0 +1,93 @@
+{
+  "agent": {
+    "metrics_collection_interval": 60
+  },
+  "metrics": {
+    "namespace": "Custom/Windows",
+    "metrics_collected": {
+      "LogicalDisk": {
+        "measurement": [
+          "% Free Space"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "*"
+        ]
+      },
+      "Memory": {
+        "measurement": [
+          "% Committed Bytes In Use"
+        ],
+        "metrics_collection_interval": 60
+      },
+      "Network Interface": {
+        "measurement": [
+          "Bytes Sent/sec",
+          "Bytes Received/sec",
+          "Packets Sent/sec",
+          "Packets Received/sec"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "*"
+        ]
+      },
+      "Paging File": {
+        "measurement": [
+          "% Usage"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "*"
+        ]
+      },
+      "PhysicalDisk": {
+        "measurement": [
+          "Disk Write Bytes/sec",
+          "Disk Read Bytes/sec",
+          "Disk Writes/sec",
+          "Disk Reads/sec"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "*"
+        ]
+      },
+      "Processor": {
+        "measurement": [
+          "% Processor Time"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "*"
+        ]
+      }
+    }
+  },
+  "logs": {
+    "logs_collected": {
+      "windows_events": {
+        "collect_list": [
+          {
+            "event_name": "System",
+            "event_levels": ["ERROR", "WARNING"],
+            "log_group_name": "Windows/System",
+            "log_stream_name": "{hostname}"
+          },
+          {
+            "event_name": "Application",
+            "event_levels": ["ERROR", "WARNING"],
+            "log_group_name": "Windows/Application",
+            "log_stream_name": "{hostname}"
+          },
+          {
+            "event_name": "Security",
+            "event_levels": ["ERROR", "WARNING"],
+            "log_group_name": "Windows/Security",
+            "log_stream_name": "{hostname}"
+          }
+        ]
+      }
+    }
+  }
+}

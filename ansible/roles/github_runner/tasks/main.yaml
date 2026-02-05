@@ -1,0 +1,206 @@
+---
+- name: Reboot
+  ansible.builtin.reboot:
+
+- name: Ensure ACL tools are present
+  ansible.builtin.package:
+    name: acl
+    state: present
+
+- name: Install IPsec
+  ansible.builtin.apt:
+    name: strongswan
+    update_cache: yes
+
+- name: Install L2TP
+  ansible.builtin.apt:
+    name: xl2tpd
+    update_cache: yes
+
+- name: Ensure ppp_generic kernel module is loaded
+  community.general.modprobe:
+    name: ppp_generic
+    state: present
+
+- name: Copy template files
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "../templates/chap-secrets.j2", dest: "/etc/ppp/chap-secrets", mode: '0600' }
+    - { src: "../templates/ipsec.conf.j2", dest: "/etc/ipsec.conf", mode: '0644' }
+    - { src: "../templates/ipsec.secrets.j2", dest: "/etc/ipsec.secrets", mode: '0644' }
+    - { src: "../templates/options.l2tpd.client.j2", dest: "/etc/ppp/options.l2tpd.client", mode: '0600' }
+    - { src: "../templates/xl2tpd.conf.j2", dest: "/etc/xl2tpd/xl2tpd.conf", mode: '0644' }
+
+- name: Restart IPsec
+  ansible.builtin.command: ipsec restart
+
+- name: Bring up IPsec connection l2tp-vpn
+  ansible.builtin.command: ipsec up l2tp-vpn
+
+- name: Show IPsec status
+  ansible.builtin.command: ipsec status
+  register: ipsec_status
+  changed_when: false
+
+- name: Restart xl2tpd
+  ansible.builtin.systemd:
+    name: xl2tpd
+    state: restarted
+
+- name: Start L2TP session via control socket
+  ansible.builtin.shell: |
+    echo "c myvpn" | tee /var/run/xl2tpd/l2tp-control
+
+- name: Show ppp0 interface (non-fatal)
+  ansible.builtin.command: ip a show ppp0
+  register: ppp_iface
+  changed_when: false
+  failed_when: false
+
+- name: Tail xl2tpd logs
+  ansible.builtin.command: journalctl -u xl2tpd -n 80 --no-pager
+  register: xl2tpd_logs
+  changed_when: false
+
+- name: Ping through ppp0
+  ansible.builtin.command: ping -I ppp0 -c 4 192.168.101.254
+  register: ping_result
+  changed_when: false
+  failed_when: false
+
+- name: Stop IPsec if ping succeeded
+  ansible.builtin.command: ipsec stop
+  when: ping_result.rc == 0
+
+- name: Ensure runner group exists
+  ansible.builtin.group:
+    name: runner
+    state: present
+
+- name: Ensure runner user exists
+  ansible.builtin.user:
+    name: runner
+    group: runner
+    shell: /usr/sbin/nologin
+    create_home: yes
+    system: yes
+
+- name: Allow passwordless sudo for the runner
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/runner-nopasswd"
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+    content: |
+      runner ALL=(ALL) NOPASSWD:ALL
+
+- name: Create runner root directory
+  ansible.builtin.file:
+    path: /opt/github-runner
+    state: directory
+    owner: runner
+    group: runner
+    mode: "0755"
+
+- name: Download GitHub Actions runner tarball
+  ansible.builtin.get_url:
+    url: https://github.com/actions/runner/releases/download/v2.328.0/actions-runner-linux-x64-2.328.0.tar.gz
+    dest: /opt/github-runner/actions-runner-linux-x64-2.328.0.tar.gz
+    mode: "0644"
+    checksum: "sha256:01066fad3a2893e63e6ca880ae3a1fad5bf9329d60e77ee15f2b97c148c3cd4e"
+
+- name: Unpack runner
+  ansible.builtin.unarchive:
+    src: /opt/github-runner/actions-runner-linux-x64-2.328.0.tar.gz
+    dest: /opt/github-runner
+    remote_src: true
+    creates:  /opt/github-runner/bin/Runner.Listener
+  notify: Restart runner service
+
+- name: Ensure config.sh is non-interactively configured (first run only)
+  ansible.builtin.command: >
+    ./config.sh
+    --url https://github.com/diba-inc/aries-infra
+    --token {{ runner_token }}
+    --unattended
+    --replace
+    --labels self-hosted,ansible
+    --work _work
+  args:
+    chdir: /opt/github-runner
+    creates: /opt/github-runner/.runner
+  register: cfg_result
+  changed_when: "'√ Runner successfully added' in cfg_result.stdout or 'Successfully replaced the runner' in cfg_result.stdout"
+  become_user: runner
+
+- name: Install runner as a service (tolerate already-installed case)
+  ansible.builtin.command: ./svc.sh install runner
+  args:
+    chdir: /opt/github-runner
+  register: svc_install
+  failed_when: >
+    (svc_install.rc not in [0,1]) or
+    (svc_install.rc == 1 and 'exists' not in (svc_install.stderr | default('')))
+  changed_when: "svc_install.rc == 0"
+
+- name: Ensure runner service is enabled and started
+  ansible.builtin.command: ./svc.sh start
+  args:
+    chdir: /opt/github-runner
+  register: svc_start
+  changed_when: "'Started' in svc_start.stdout"
+  failed_when: "svc_start.rc not in [0]"
+  notify: Restart runner service
+
+- name: Ensure unzip is installed
+  ansible.builtin.apt:
+    name: unzip
+    state: present
+    update_cache: yes
+
+- name: Download AWS CLI v2 zip
+  ansible.builtin.get_url:
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    dest: "/tmp/awscliv2.zip"
+    mode: "0644"
+
+- name: Unzip AWS CLI v2
+  ansible.builtin.unarchive:
+    src: "/tmp/awscliv2.zip"
+    dest: "/tmp"
+    remote_src: true
+
+- name: Install AWS CLI v2 (first time)
+  ansible.builtin.command: /tmp/aws/install
+  args:
+    creates: /usr/local/bin/aws
+  register: awscli_install
+
+- name: Install Python3, venv, and pip
+  ansible.builtin.apt:
+    name:
+      - python3
+      - python3-venv
+      - python3-pip
+    state: present
+    update_cache: yes
+
+# Output
+- name: Show IPsec status output
+  ansible.builtin.debug:
+    var: ipsec_status.stdout_lines
+- name: Show ppp0 output
+  ansible.builtin.debug:
+    var: ppp_iface.stdout_lines
+- name: Show xl2tpd recent logs
+  ansible.builtin.debug:
+    var: xl2tpd_logs.stdout_lines
+- name: Show ping result
+  ansible.builtin.debug:
+    var: ping_result.stdout_lines

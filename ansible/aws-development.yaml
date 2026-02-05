@@ -1,0 +1,36 @@
+all:
+  children:
+    unreal_engine:
+      hosts:
+        127.0.0.1: # EC2
+          ansible_connection: winrm
+          ansible_user: Administrator
+          ansible_password: "{{ aries_password }}"
+          ansible_winrm_server_cert_validation: ignore
+          ansible_port: 5986
+          login_user: Administrator
+          source_s3_bucket: aries-dev-unreal-engine
+          run_command: npm run aws-dev
+          launcher_log_retention_days: 3
+          cloudwatch_agent_url: https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi
+          cloudwatch_agent_config_path: C:\Program Files\Amazon\AmazonCloudWatchAgent\config.json
+          aws_cli_v2_url: https://awscli.amazonaws.com/AWSCLIV2.msi
+          config_file_name: config.aws-dev.json
+    coturn:
+      hosts:
+        10.30.4.38:
+          ansible_host: 127.0.0.1
+          ansible_port: 10022
+          ansible_user: ubuntu
+          turn_credential: "{{ turn_credential }}"
+          turn_realm: pcdx.jp
+    github_runner:
+      hosts:
+        10.30.4.166:
+          ansible_host: 127.0.0.1
+          ansible_port: 10022
+          ansible_user: ubuntu
+          ipsec_psk: "{{ ipsec_psk }}"
+          ipsec_password: "{{ ipsec_password }}"
+          runner_token: "{{ runner_token }}"
+          ansible_become: true

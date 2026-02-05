@@ -1,0 +1,19 @@
+all:
+  children:
+    unreal_engine:
+      vars:
+        ansible_connection: winrm
+        ansible_user: aries
+        ansible_password: "{{ aries_password }}"
+        ansible_winrm_server_cert_validation: ignore
+        ansible_port: 5986
+        login_user: aries
+        source_s3_bucket: aries-stg-unreal-engine
+        run_command: npm run aws-stg
+        launcher_log_retention_days: 3
+        cloudwatch_agent_url: https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi
+        cloudwatch_agent_config_path: C:\Program Files\Amazon\AmazonCloudWatchAgent\config.json
+        aws_cli_v2_url: https://awscli.amazonaws.com/AWSCLIV2.msi
+        config_file_name: config.aws-stg.json
+      hosts:
+        192.168.101.1:

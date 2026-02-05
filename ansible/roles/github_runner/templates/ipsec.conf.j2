@@ -1,0 +1,14 @@
+conn l2tp-vpn
+    keyexchange=ikev1
+    authby=secret
+    type=transport
+    left=%defaultroute
+    leftprotoport=17/1701
+    right=124.100.214.16
+    rightid=192.168.101.254
+    rightprotoport=17/1701
+    ike=aes256-sha1-modp1024!
+    esp=aes256-sha1,aes128-sha1,3des-sha1!
+    dpdaction=clear
+    compress=no
+    auto=add

@@ -1,0 +1,4 @@
+---
+- hosts: coturn
+  roles:
+    - coturn

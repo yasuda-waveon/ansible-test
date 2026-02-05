@@ -1,0 +1,8 @@
+---
+- name: Restart runner service
+  ansible.builtin.shell: |
+    set -e
+    ./svc.sh stop || true
+    ./svc.sh start
+  args:
+    chdir: /opt/github-runner

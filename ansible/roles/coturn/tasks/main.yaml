@@ -1,0 +1,38 @@
+---
+- block:
+  - name: Install Coturn
+    ansible.builtin.apt:
+      name: coturn
+      update_cache: true
+
+  - name: Stop service coturn, if running
+    ansible.builtin.systemd_service:
+      name: coturn
+      state: stopped
+
+  - name: Edit /etc/default/coturn
+    ansible.builtin.blockinfile:
+      path: /etc/default/coturn
+      block: |
+        TURNSERVER_ENABLED=1
+
+  - name: Copy /etc/turnserver.conf
+    ansible.builtin.template:
+      src: ../templates/turnserver.conf.j2
+      dest: /etc/turnserver.conf
+      owner: root
+      group: root
+      mode: 0640
+
+  - name: Start service coturn, if running
+    ansible.builtin.systemd_service:
+      state: started
+      name: coturn
+
+  - name: Enable service coturn and ensure it is not masked
+    ansible.builtin.systemd_service:
+      name: coturn
+      enabled: true
+      masked: no
+
+  become: true

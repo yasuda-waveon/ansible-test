@@ -1,0 +1,19 @@
+# NVM Install
+Remove-Item 'C:\Users\{{ login_user }}\AppData\Roaming\nvm' -Recurse -Confirm:$false
+Remove-Item 'C:\NVM' -Recurse -Confirm:$false
+New-Item -ItemType Directory -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm'
+New-Item -ItemType Directory -Path 'C:\NVM'
+Invoke-WebRequest -Uri 'https://github.com/coreybutler/nvm-windows/releases/download/1.2.2/nvm-noinstall.zip' -OutFile 'C:\NVM\nvm-noinstall.zip'
+Expand-Archive -Path 'C:\NVM\nvm-noinstall.zip' -DestinationPath 'C:\Users\{{ login_user }}\AppData\Roaming\nvm'
+if (Test-Path -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm') { Write-Host 'NVM has been installed successfully.' } else { Write-Host 'NVM installation failed.' }
+New-Item -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm' -Name "settings.txt" -ItemType "file"
+Add-Content -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm\settings.txt' -Value 'root: C:\Users\{{ login_user }}\AppData\Roaming\nvm'
+Add-Content -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm\settings.txt' -Value 'path: C:\Program Files\nodejs'
+Add-Content -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm\settings.txt' -Value 'arch: 64'
+Add-Content -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm\settings.txt' -Value 'proxy: none'
+
+# NodeJS 20.18.3 Install
+Set-Location -Path 'C:\Users\{{ login_user }}\AppData\Roaming\nvm'
+nvm install 20.18.3
+nvm use 20.18.3
+npm install -g ts-node
