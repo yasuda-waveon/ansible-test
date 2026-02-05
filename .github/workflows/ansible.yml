@@ -25,4 +25,6 @@ jobs:
           $env:PYTHONUTF8 = "1"
           $env:PYTHONIOENCODING = "utf-8"
           $env:LANG = "C.UTF-8"
-          $env:LC_ALL = "C.UTF-8
+          $env:LC_ALL = "C.UTF-8"
+
+          ansible-playbook -i inventories/github_actions/hosts.yml playbooks/test_github_actions.yml
