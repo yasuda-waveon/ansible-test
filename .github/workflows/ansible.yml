@@ -1,0 +1,26 @@
+name: Ansible Windows Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ansible:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Ansible
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible pywinrm
+
+      - name: Run Ansible Playbook
+        shell: bash
+        run: |
+          ansible-playbook ^
+            -i inventories/github_actions/hosts.yml ^
+            playbooks/site_github_actions.yml
