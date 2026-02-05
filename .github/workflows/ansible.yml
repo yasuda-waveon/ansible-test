@@ -21,6 +21,6 @@ jobs:
       - name: Run Ansible Playbook
         shell: bash
         run: |
-          ansible-playbook ^
+          ansible-playbook
             -i inventories/github_actions/hosts.yml
             playbooks/test_github_actions.yml
