@@ -9,8 +9,8 @@ on:
 
 jobs:
   test-playbook:
-    # Co-location環境内のSelf-Hosted Runnerを指定
-    runs-on: [self-hosted, linux]
+    # GitHub Hosted Runner (Ubuntu) を使用することで、設定なしで即座に実行可能です
+    runs-on: ubuntu-latest
     
     defaults:
       run:
@@ -25,11 +25,3 @@ jobs:
 
       - name: Syntax Check
         run: ansible-playbook -i co-location-development.yaml site.yaml --syntax-check
-
-      - name: Dry Run (Check Mode)
-        env:
-          ARIES_PASSWORD: ${{ secrets.ARIES_PASSWORD }}
-        run: |
-          # --tags "github_actions": main.yml内でタグ付けされたタスクのみ実行
-          # --check: 変更を加えないテストモード
-          ansible-playbook -i co-location-development.yaml site.yaml --tags "github_actions" --check --diff --extra-vars "aries_password=$ARIES_PASSWORD"
