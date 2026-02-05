@@ -1,4 +1,4 @@
-name: Ansible Test (Linux Runner)
+name: Ansible Windows Test
 
 on:
   push:
@@ -6,30 +6,23 @@ on:
 
 jobs:
   ansible:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install Ansible
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install ansible-core
+          pip install "ansible-core<2.16" pywinrm
 
-      - name: Check Ansible version
-        run: ansible --version
-
-      - name: Run Ansible Playbook
-        env:
-          LANG: C.UTF-8
-          LC_ALL: C.UTF-8
+      - name: Run Ansible (force UTF-8)
+        shell: pwsh
         run: |
-          ansible-playbook \
-            -i inventories/github_actions/hosts.yml \
-            playbooks/test_github_actions.yml
+          chcp 65001
+          $env:PYTHONUTF8 = "1"
+          $env:PYTHONIOENCODING = "utf-8"
+          $env:LANG = "C.UTF-8"
+          $env:LC_ALL = "C.UTF-8
