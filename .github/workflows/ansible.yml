@@ -19,7 +19,7 @@ jobs:
           pip install ansible pywinrm
 
       - name: Run Ansible Playbook
-        shell: bash
+        shell: pwsh
         run: |
           chcp 65001
           $env:PYTHONUTF8 = "1"
