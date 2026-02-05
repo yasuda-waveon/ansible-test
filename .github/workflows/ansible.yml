@@ -1,27 +1,35 @@
-name: Ansible Windows Test
+name: Test Unreal Engine Playbook
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch: # 手動実行用
+  pull_request:      # PR作成時に自動テスト
+    paths:
+      - 'ansible/roles/unreal_engine/**'
+      - 'ansible/co-location-development.yaml'
 
 jobs:
-  ansible:
-    runs-on: windows-latest
+  test-playbook:
+    # Co-location環境内のSelf-Hosted Runnerを指定
+    runs-on: [self-hosted, linux]
+    
+    defaults:
+      run:
+        working-directory: ./ansible
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Ansible
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-          pip install "ansible-core<2.16" pywinrm
+      - name: Install Ansible dependencies
+        run: pip install ansible pywinrm
 
-      - name: Run Ansible (force UTF-8)
-        shell: pwsh
+      - name: Syntax Check
+        run: ansible-playbook -i co-location-development.yaml site.yaml --syntax-check
+
+      - name: Dry Run (Check Mode)
         env:
-          PYTHONUTF8: "1"
-          PYTHONIOENCODING: "utf-8"
+          ARIES_PASSWORD: ${{ secrets.ARIES_PASSWORD }}
         run: |
-          python -X utf8 -c "import locale; locale.getpreferredencoding = lambda do_setlocale=True: 'UTF-8'; from ansible.cli.playbook import PlaybookCLI; PlaybookCLI(['ansible-playbook', '-i', 'inventories/github_actions/hosts.yml', 'playbooks/test_github_actions.yml']).run()"
+          # --tags "github_actions": main.yml内でタグ付けされたタスクのみ実行
+          # --check: 変更を加えないテストモード
+          ansible-playbook -i co-location-development.yaml site.yaml --tags "github_actions" --check --diff --extra-vars "aries_password=$ARIES_PASSWORD"
