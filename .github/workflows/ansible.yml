@@ -20,9 +20,9 @@ jobs:
 
       - name: Run Ansible Playbook
         shell: bash
-        env:
-          PYTHONUTF8: 1
         run: |
-          ansible-playbook \
-            -i inventories/github_actions/hosts.yml \
+          chcp 65001
+          $env:PYTHONUTF8 = "1"
+          ansible-playbook `
+            -i inventories/github_actions/hosts.yml `
             playbooks/test_github_actions.yml
